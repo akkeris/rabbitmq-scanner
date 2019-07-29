@@ -147,9 +147,7 @@ func main() {
                 os.Exit(1)
         }
 	for _, element := range list {
-		if element[0] == "sandbox" {
 			_ = getMetrics(element[0], element[1])
-		}
 	}
         tsdbconn.Close()
 }
@@ -321,7 +319,6 @@ func formatMetric(cluster string, vhost string, queue string, appspace string, m
 }
 
 func deliver(put string) {
-        fmt.Println(put)
         fmt.Fprintf(tsdbconn, put)
 
 
