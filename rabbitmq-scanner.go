@@ -133,22 +133,18 @@ var appspacelist map[string]string
 var tsdbconn net.Conn
 func main() {
 	setCreds()
-	err := getAppSpaceList()
+	appspaces, err := getAppSpaceList()
 	if err != nil {
 		fmt.Println(err)
 		os.Exit(1)
 	}
-
-	list := getRabbitmqList()
-	fmt.Println(list)
+        fmt.Println(appspaces)
         tsdbconn, err = net.Dial("tcp", os.Getenv("OPENTSDB_IP"))
-       if err != nil {
+        if err != nil {
                 fmt.Println("dial error:", err)
                 os.Exit(1)
         }
-	for _, element := range list {
-			_ = getMetrics(element[0], element[1])
-	}
+	getRabbitmqMetrics(appspaces)
         tsdbconn.Close()
 }
 
@@ -168,44 +164,46 @@ func setCreds() {
 
 }
 
-func getAppSpaceList() (e error) {
-	appspacelist = make(map[string]string)
+func getAppSpaceList() (l []string, e error) {
+        var list []string
 
-	db, dberr := sql.Open("postgres", pitdb)
-	if dberr != nil {
-		fmt.Println(dberr)
-		return dberr
-	}
-	stmt, dberr := db.Prepare("select appname, space, bindname  from appbindings where bindtype='rabbitmq'")
-	defer stmt.Close()
-	rows, err := stmt.Query()
-	if dberr != nil {
-		db.Close()
-		fmt.Println(dberr)
-		return dberr
-	}
-	defer rows.Close()
-	var appname string
-	var space string
-	var bindname string
-	for rows.Next() {
-		err := rows.Scan(&appname, &space, &bindname)
-		if err != nil {
-			fmt.Println(err)
-			return err
-		}
-		appspacelist[bindname] = appname + "-" + space
-	}
-	err = rows.Err()
-	if err != nil {
-		fmt.Println(err)
-		return err
-	}
-	db.Close()
-	return nil
+        brokerdb := os.Getenv("LISTDB")
+        uri := brokerdb
+        db, dberr := sql.Open("postgres", uri)
+        if dberr != nil {
+                fmt.Println(dberr)
+                return nil, dberr
+        }
+        stmt,dberr := db.Prepare("select apps.name as appname, spaces.name as space from apps, spaces, services, service_attachments where services.service=service_attachments.service and owned=true and addon_name like '%rabbitmq%' and services.deleted=false and service_attachments.deleted=false and service_attachments.app=apps.app and spaces.space=apps.space;")
+        defer stmt.Close()
+        rows, err := stmt.Query()
+        if dberr != nil {
+                db.Close()
+                fmt.Println(dberr)
+                return nil, dberr
+        }
+        defer rows.Close()
+        var appname string
+        var space string
+        
+        for rows.Next() {
+                err := rows.Scan(&appname, &space)
+                if err != nil {
+                        fmt.Println(err)
+                        return nil, err
+                }
+                list = append(list, appname+"-"+space)
+        }
+        err = rows.Err()
+        if err != nil {
+                fmt.Println(err)
+                return nil, err
+        }
+        db.Close()
+        return list, nil
 }
 
-func getMetrics(_cluster string, _vhost string) (e error) {
+func getMetrics(_cluster string, _vhost string, appspace string) (e error) {
 	client := http.Client{}
 	var req *http.Request
 	var err error
@@ -245,7 +243,6 @@ func getMetrics(_cluster string, _vhost string) (e error) {
 		vhost := element.Vhost
 		cluster := _cluster
 		queuename := element.Name
-		appspace := appspacelist[vhost]
 		deliver(formatMetric(cluster, vhost, queuename, appspace, "MessageStats.DeliverGetDetails.Rate", element.MessageStats.DeliverGetDetails.Rate))
 		deliver(formatMetric(cluster, vhost, queuename, appspace, "MessageStats.DeliverGet", element.MessageStats.DeliverGet))
 		deliver(formatMetric(cluster, vhost, queuename, appspace, "MessageStats.AckDetails.Rate", element.MessageStats.AckDetails.Rate))
@@ -277,39 +274,61 @@ func getMetrics(_cluster string, _vhost string) (e error) {
 
 }
 
-func getRabbitmqList() [][]string {
-	var list [][]string
+func getRabbitmqMetrics(appspaces []string) {
 
-	uri := brokerdb
+	uri := pitdb
 	db, dberr := sql.Open("postgres", uri)
 	if dberr != nil {
 		fmt.Println(dberr)
 		os.Exit(1)
 	}
-	rows, err := db.Query("select cluster,vhost from provision")
+      for _, element := range appspaces {
+	rows, err := db.Query("select bindname from appbindings where appname||'-'||space = '"+element+"' and bindtype='rabbitmq'")
 	if err != nil {
 		fmt.Println(err)
 		os.Exit(1)
 	}
 	defer rows.Close()
-	var vhost string
-	var cluster string
+        var bindname string
 	for rows.Next() {
-		err := rows.Scan(&cluster, &vhost)
+		err := rows.Scan(&bindname)
 		if err != nil {
 			fmt.Println(err)
 			os.Exit(1)
 		}
-		list = append(list, []string{cluster, vhost})
-	}
-	err = rows.Err()
-	if err != nil {
-		fmt.Println(err)
-		os.Exit(1)
-	}
+         }
+        cluster := getCluster(bindname)
 
-	db.Close()
-	return list
+        fmt.Printf("adding metrics for application owner %s on vhost %s on %s cluster\n", element, bindname, cluster)
+        getMetrics(cluster, bindname, element)
+     }
+
+}
+
+func getCluster(bindname string) (c string){
+
+        uri := brokerdb
+        db, dberr := sql.Open("postgres", uri)
+        if dberr != nil {
+                fmt.Println(dberr)
+                os.Exit(1)
+        }
+        rows, err := db.Query("select cluster from provision where vhost ='"+bindname+"'")
+        if err != nil {
+                fmt.Println(err)
+                os.Exit(1)
+        }
+        defer rows.Close()
+        var cluster string
+        for rows.Next() {
+                err := rows.Scan(&cluster)
+                if err != nil {
+                        fmt.Println(err)
+                        os.Exit(1)
+                }
+         }
+        return cluster
+
 }
 
 func formatMetric(cluster string, vhost string, queue string, appspace string, metric string, value interface{}) (m string) {
