@@ -174,7 +174,20 @@ func getAppSpaceList() (l []string, e error) {
                 fmt.Println(dberr)
                 return nil, dberr
         }
-        stmt,dberr := db.Prepare("select apps.name as appname, spaces.name as space from apps, spaces, services, service_attachments where services.service=service_attachments.service and owned=true and addon_name like '%rabbitmq%' and services.deleted=false and service_attachments.deleted=false and service_attachments.app=apps.app and spaces.space=apps.space;")
+        stmt,dberr := db.Prepare(`
+select  apps.name as appname, spaces.name as space 
+from apps, spaces, services, service_attachments 
+where services.service=service_attachments.service 
+  and owned=true 
+  and addon_name like 'alamo-rabbitmq' 
+  and spaces.deleted = false 
+  and services.deleted=false 
+  and service_attachments.deleted = false 
+  and apps.deleted = false 
+  and service_attachments.deleted=false 
+  and service_attachments.app=apps.app 
+  and spaces.space=apps.space;
+`)
         defer stmt.Close()
         rows, err := stmt.Query()
         if dberr != nil {
@@ -207,6 +220,7 @@ func getMetrics(_cluster string, _vhost string, appspace string) (e error) {
 	client := http.Client{}
 	var req *http.Request
 	var err error
+
 	if _cluster == "sandbox" {
 		req, err = http.NewRequest("GET", sandboxapi+"/api/queues/"+_vhost, nil)
 		req.SetBasicAuth(sandboxuser, sandboxpassword)
