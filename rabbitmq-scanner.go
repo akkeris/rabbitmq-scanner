@@ -9,7 +9,6 @@ import (
 	"net/http"
         "net"
 	"os"
-	vault "github.com/akkeris/vault-client"
 	"strconv"
 	"time"
 )
@@ -149,18 +148,16 @@ func main() {
 }
 
 func setCreds() {
-	adminsecret := os.Getenv("RABBITMQ_ADMIN_SECRET")
-	livesecret := os.Getenv("RABBITMQ_LIVE_SECRET")
-	sandboxsecret := os.Getenv("RABBITMQ_SANDBOX_SECRET")
-	pitdbsecret := os.Getenv("PITDB_SECRET")
-	brokerdb = vault.GetField(adminsecret, "brokerdb")
-	liveapi = vault.GetField(livesecret, "url")
-	liveuser = vault.GetField(livesecret, "username")
-	livepassword = vault.GetField(livesecret, "password")
-	sandboxapi = vault.GetField(sandboxsecret, "url")
-	sandboxuser = vault.GetField(sandboxsecret, "username")
-	sandboxpassword = vault.GetField(sandboxsecret, "password")
-	pitdb = vault.GetField(pitdbsecret, "location")
+
+	brokerdb = os.Getenv("DATABASE_URL")
+	liveapi = os.Getenv("LIVE_API")
+	liveuser = os.Getenv("LIVE_USERNAME")
+	livepassword = os.Getenv("LIVE_PASSWORD")
+	sandboxapi =  os.Getenv("SANDBOX_API")
+	sandboxuser = os.Getenv("SANDBOX_USERNAME")
+	sandboxpassword = os.Getenv("SANDBOX_PASSWORD")
+
+	pitdb = os.Getenv("PITDB")
 
 }
 
